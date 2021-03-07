@@ -9,10 +9,16 @@ import sys
 import models
 from torchvision import datasets, transforms
 from torch.autograd import Variable
+from six.moves import urllib
 
 
 import warnings
 warnings.filterwarnings("ignore")
+
+# patch - MNIST dataset request gets 403 denied because of Cloudflare
+opener = urllib.request.build_opener()
+opener.addheaders = [('User-agent', 'Mozilla/5.0')]
+urllib.request.install_opener(opener)
 
 def save_state(model, acc):
     print('==> Saving model ...')

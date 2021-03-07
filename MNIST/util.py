@@ -80,7 +80,7 @@ class BinOp():
                 
             # Now we calcuate \partial sign(W_i)/ \partial \Tilde{W_i} * alpha. 
             # Note that the following two lines make approximation on \partial sign(W_i)/ \partial \Tilde{W_i}.
-            m[weight.lt(-1.0)] = 0 
+            m[weight.lt(-1.0)] = 0
             m[weight.gt(1.0)] = 0
             
             # Now we calculate \partial C/ \partial \Tilde{W_i}
@@ -90,7 +90,8 @@ class BinOp():
             Please implement the 2nd term of gradient calculation 
             '''
             # Now we update m as alpha * gradient 
-            m = *** Type your code here *** 
+            #m = *** Type your code here *** 
+            m = grad.mul(m)
             '''
             End here
             '''
@@ -99,9 +100,11 @@ class BinOp():
             Please implement the 1st term of gradient calculation 
             '''
             # Now we calculate m_add, which is defined as sign(W) multiple gradient
-            m_add = *** Type your code here *** 
+            sign_W = weight.sign()
+            m_add = grad.multiply(sign_W)
+            #m_add = *** Type your code here *** 
             
-            # sum over all the weight entris
+            # sum over all the weight entries
             if len(s) == 4:
                 m_add = m_add.sum(3, keepdim=True)\
                         .sum(2, keepdim=True).sum(1, keepdim=True).div(n).expand(s)
@@ -109,7 +112,7 @@ class BinOp():
                 m_add = m_add.sum(1, keepdim=True).div(n).expand(s)
                 
             # Now we update m_add as sign(W) * m_add 
-            m_add = *** Type your code here *** 
+            m_add = sign_W.multiply(m_add)
             '''
             End here
             '''
