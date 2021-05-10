@@ -209,9 +209,11 @@ if __name__=='__main__':
 
     if args.evaluate:
         test(evaluate=True)
+        print(f'Total infer time: {infer_timer}')
         exit()
 
     for epoch in range(1, args.epochs + 1):
         adjust_learning_rate(optimizer, epoch)
         train(epoch)
         test()
+    print(f'Total train time: {train_timer}')

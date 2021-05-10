@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import os
 import sys
+import time
 import models
 from torchvision import datasets, transforms
 from torch.autograd import Variable
@@ -15,10 +16,14 @@ from six.moves import urllib
 import warnings
 warnings.filterwarnings("ignore")
 
+train_timer = 0.
+infer_timer = 0.
+
 # patch - MNIST dataset request gets 403 denied because of Cloudflare
 opener = urllib.request.build_opener()
 opener.addheaders = [('User-agent', 'Mozilla/5.0')]
 urllib.request.install_opener(opener)
+
 
 def save_state(model, acc):
     print('==> Saving model ...')
@@ -32,7 +37,10 @@ def save_state(model, acc):
                     state['state_dict'].pop(key)
     torch.save(state, 'models/'+args.arch+'.best.pth.tar')
 
+
 def train(epoch):
+    global train_timer, infer_timer
+    start_train = time.time()    
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         if args.cuda:
@@ -49,10 +57,16 @@ def train(epoch):
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.data.item()))
+    end_train = time.time()
+    epoch_train_time = end_train - start_train
+    print(f'Epoch runtime: {epoch_train_time}')
+    train_timer += epoch_train_time    
     return
 
+
 def test(evaluate=False):
-    global best_acc
+    global best_acc, infer_timer
+    delta = infer_timer
     model.eval()
     test_loss = 0
     correct = 0
@@ -60,11 +74,14 @@ def test(evaluate=False):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data, volatile=True), Variable(target)
+        infer_start = time.time()
         output = model(data)
+        infer_end = time.time()
+        infer_timer += (infer_end - infer_start)
         test_loss += criterion(output, target).data.item()
         pred = output.data.max(1, keepdim=True)[1]
         correct += pred.eq(target.data.view_as(pred)).cpu().sum()
-    
+
     acc = 100. * float(correct) / len(test_loader.dataset)
     if (acc > best_acc):
         best_acc = acc
@@ -76,7 +93,9 @@ def test(evaluate=False):
         test_loss * args.batch_size, correct, len(test_loader.dataset),
         100. * float(correct) / len(test_loader.dataset)))
     print('Best Accuracy: {:.2f}%\n'.format(best_acc))
+    print(f'Inference time: {(infer_timer-delta):.2f}')
     return
+
 
 def adjust_learning_rate(optimizer, epoch):
     """Sets the learning rate to the initial LR decayed by 10 every 15 epochs"""
@@ -175,9 +194,11 @@ if __name__=='__main__':
 
     if args.evaluate:
         test(evaluate=True)
-        exit()
+        print(f'Total infer time: {infer_timer}')        
+        exit(0)
 
     for epoch in range(1, args.epochs + 1):
         adjust_learning_rate(optimizer, epoch)
         train(epoch)
         test()
+    print(f'Total train time: {train_timer}')

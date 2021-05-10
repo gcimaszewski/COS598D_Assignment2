@@ -7,6 +7,7 @@ import os
 import torch
 import argparse
 import data
+import time
 import torch.nn as nn
 import torch.optim as optim
 
@@ -15,6 +16,9 @@ from torch.autograd import Variable
 
 import torchvision
 import torchvision.transforms as transforms
+
+train_timer = 0.
+infer_timer = 0.
 
 def save_state(model, best_acc):
     print('==> Saving model ...')
@@ -29,6 +33,8 @@ def save_state(model, best_acc):
     torch.save(state, 'models/nin.pth.tar')
 
 def train(epoch):
+    global train_timer, infer_timer    
+    start_train = time.time()    
     model.train()
     for batch_idx, (data, target) in enumerate(trainloader):
         
@@ -51,6 +57,10 @@ def train(epoch):
                 epoch, batch_idx * len(data), len(trainloader.dataset),
                 100. * batch_idx / len(trainloader), loss.data.item(),
                 optimizer.param_groups[0]['lr']))
+    end_train = time.time()
+    epoch_train_time = end_train - start_train
+    print(f'Epoch runtime: {epoch_train_time}')
+    train_timer += epoch_train_time    
     return
 
 def test():
@@ -183,6 +193,7 @@ if __name__=='__main__':
     # do the evaluation if specified
     if args.evaluate:
         test()
+        print(f'Total infer time: {infer_timer}')        
         exit(0)
 
     # start training
@@ -190,3 +201,4 @@ if __name__=='__main__':
         adjust_learning_rate(optimizer, epoch)
         train(epoch)
         test()
+    print(f'Total train time: {train_timer}')

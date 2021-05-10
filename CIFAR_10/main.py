@@ -7,6 +7,7 @@ import os
 import torch
 import argparse
 import data
+import time
 import util
 import torch.nn as nn
 import torch.optim as optim
@@ -15,6 +16,10 @@ from torchvision import transforms
 
 from models import nin
 from torch.autograd import Variable
+
+train_timer = 0.
+infer_timer = 0.
+
 
 def save_state(model, best_acc):
     print('==> Saving model ...')
@@ -29,6 +34,8 @@ def save_state(model, best_acc):
     torch.save(state, 'models/nin.pth.tar')
 
 def train(epoch):
+    global train_timer, infer_timer
+    start_train = time.time()        
     model.train()
     for batch_idx, (data, target) in enumerate(trainloader):
         if torch.cuda.is_available():
@@ -57,9 +64,16 @@ def train(epoch):
                 epoch, batch_idx * len(data), len(trainloader.dataset),
                 100. * batch_idx / len(trainloader), loss.data.item(),
                 optimizer.param_groups[0]['lr']))
+    end_train = time.time()
+    epoch_train_time = end_train - start_train
+    print(f'Epoch runtime: {epoch_train_time}')
+    train_timer += epoch_train_time    
     return
 
+
 def test():
+    global best_acc, infer_timer
+    delta = infer_timer
     global best_acc
     model.eval()
     test_loss = 0
@@ -69,8 +83,11 @@ def test():
         if torch.cuda.is_available():
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data), Variable(target)
+        infer_start = time.time()
 
         output = model(data)
+        infer_end = time.time()
+        infer_timer += (infer_end - infer_start)
         test_loss += criterion(output, target).data.item()
         pred = output.data.max(1, keepdim=True)[1]
         correct += pred.eq(target.data.view_as(pred)).cpu().sum()
@@ -80,13 +97,15 @@ def test():
     if acc > best_acc:
         best_acc = acc
         save_state(model, best_acc)
-    
+
     test_loss /= len(testloader.dataset)
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)'.format(
         test_loss * 128., correct, len(testloader.dataset),
         100. * float(correct) / len(testloader.dataset)))
     print('Best Accuracy: {:.2f}%\n'.format(best_acc))
+    print(f'Inference time: {(infer_timer-delta):.2f}')
     return
+
 
 def adjust_learning_rate(optimizer, epoch):
     update_list = [120, 200, 240, 280]
@@ -186,6 +205,7 @@ if __name__=='__main__':
     # do the evaluation if specified
     if args.evaluate:
         test()
+        print(f'Total infer time: {infer_timer}')        
         exit(0)
 
     # start training
@@ -193,3 +213,4 @@ if __name__=='__main__':
         adjust_learning_rate(optimizer, epoch)
         train(epoch)
         test()
+    print(f'Total train time: {train_timer}')
