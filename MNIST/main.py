@@ -7,6 +7,7 @@ import torch.optim as optim
 import os
 import sys
 import models
+import time
 import util
 from torchvision import datasets, transforms
 from torch.autograd import Variable
@@ -14,6 +15,9 @@ from torch.autograd import Variable
 
 import warnings
 warnings.filterwarnings("ignore")
+
+train_timer = 0.
+infer_timer = 0.
 
 def save_state(model, acc):
     print('==> Saving model ...')
@@ -27,7 +31,10 @@ def save_state(model, acc):
                     state['state_dict'].pop(key)
     torch.save(state, 'models/'+args.arch+'.best.pth.tar')
 
+
 def train(epoch):
+    global train_timer, infer_timer
+    start_train = time.time()
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         if args.cuda:
@@ -37,25 +44,38 @@ def train(epoch):
 
         # process the weights including binarization
         bin_op.binarization()
-
-        output = model(data)
+        output = model(data) # this calls forward() from LeNet_5 object
         loss = criterion(output, target)
         loss.backward()
 
+        # names = [n['key'] for n in optimizer.param_groups if ('bias' in n['key'] or 'weight' in n['key'])]
+        # pre_biases = {}
+        # for n in optimizer.param_groups:
+        #     if n['key'] in names:
+        #         pre_biases[n['key']] = n['params'][0].data.clone()
         # restore weights
         bin_op.restore()
         bin_op.updateBinaryGradWeight()
 
         optimizer.step()
+
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.data.item()))
+    end_train = time.time()
+    epoch_train_time = end_train - start_train
+    print(f'Epoch runtime: {epoch_train_time}')
+    train_timer += epoch_train_time
     return
 
+
 def test(evaluate=False):
-    global best_acc
+    global best_acc, infer_timer
+    delta = infer_timer
+    start_test = time.time()
     model.eval()
+    # with torch.no_grad:
     test_loss = 0
     correct = 0
 
@@ -64,13 +84,16 @@ def test(evaluate=False):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data, volatile=True), Variable(target)
+        infer_start = time.time()
         output = model(data)
+        infer_end = time.time()
+        infer_timer += (infer_end - infer_start)
         test_loss += criterion(output, target).data.item()
         pred = output.data.max(1, keepdim=True)[1]
         correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
     bin_op.restore()
-    
+
     acc = 100. * float(correct) / len(test_loader.dataset)
     if (acc > best_acc):
         best_acc = acc
@@ -82,7 +105,9 @@ def test(evaluate=False):
         test_loss * args.batch_size, correct, len(test_loader.dataset),
         100. * float(correct) / len(test_loader.dataset)))
     print('Best Accuracy: {:.2f}%\n'.format(best_acc))
+    print(f'Inference time: {(infer_timer-delta):.2f}')
     return
+
 
 def adjust_learning_rate(optimizer, epoch):
     """Sets the learning rate to the initial LR decayed by 10 every 15 epochs"""
@@ -91,6 +116,7 @@ def adjust_learning_rate(optimizer, epoch):
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
     return lr
+
 
 if __name__=='__main__':
     # Training settings
@@ -119,17 +145,17 @@ if __name__=='__main__':
             help='the MNIST network structure: LeNet_5')
     parser.add_argument('--pretrained', action='store', default=None,
             help='pretrained model')
+    parser.add_argument('--use-binary-infer', action='store_true', default=False,
+            help='Use binary operations (not fp conv) for inference')
     parser.add_argument('--evaluate', action='store_true', default=False,
             help='whether to run evaluation')
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
 
-    print(args)
-    
     torch.manual_seed(args.seed)
     if args.cuda:
         torch.cuda.manual_seed(args.seed)
-    
+
     # load data
     kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
     train_loader = torch.utils.data.DataLoader(
@@ -145,10 +171,10 @@ if __name__=='__main__':
                 transforms.Normalize((0.1307,), (0.3081,))
                 ])),
             batch_size=args.test_batch_size, shuffle=True, **kwargs)
-    
+
     # generate the model
     if args.arch == 'LeNet_5':
-        model = models.LeNet_5()
+        model = models.LeNet_5(use_xnor=args.use_binary_infer)
     else:
         print('ERROR: specified arch is not suppported')
         exit()
@@ -162,20 +188,19 @@ if __name__=='__main__':
 
     if args.cuda:
         model.cuda()
-    
-    print(model)
+
     param_dict = dict(model.named_parameters())
     params = []
-    
+
     base_lr = 0.1
-    
+
     for key, value in param_dict.items():
-        params += [{'params':[value], 'lr': args.lr,
-            'weight_decay': args.weight_decay,
-            'key':key}]
-    
+        params += [{'params': [value], 'lr': args.lr,
+                   'weight_decay': args.weight_decay,
+                    'key':key}]
+
     optimizer = optim.Adam(params, lr=args.lr,
-            weight_decay=args.weight_decay)
+                           weight_decay=args.weight_decay)
 
     criterion = nn.CrossEntropyLoss()
 
